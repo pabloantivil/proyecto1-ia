@@ -1,0 +1,103 @@
+import numpy as np
+import glob
+from sklearn.model_selection import train_test_split
+import cv2
+import os
+
+seed = 42
+np.random.seed(seed)
+
+# ruta = C:/Users/benja/Desktop/ia/proyecto1-ia/dataset
+ruta = "C:/Users/pablo/OneDrive/Documentos/UCT/GitHub/proyecto1-ia/dataset"
+
+# Lista de imágenes excluyendo las que son máscaras
+imagen_path = sorted([p for p in glob.glob(ruta + "/*.jpg") if "_expert" not in p])
+
+# Partición de datos por imagen
+entrenamiento_val, test = train_test_split(imagen_path, test_size=0.2, random_state=seed)
+entrenamiento, val = train_test_split(entrenamiento_val, test_size=0.25, random_state=seed)
+print("Entrenamiento:", len(entrenamiento), "Validación:", len(val), "Test:", len(test))
+
+def carga_imagen(paths):
+    imagenes, mascaras = [], []
+    for imagen_path in paths:
+        img = cv2.cvtColor(cv2.imread(imagen_path), cv2.COLOR_BGR2RGB)
+        mask_path = imagen_path.replace('.jpg', '_expert.png')
+        mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+        if mask is None:
+            print(f"Advertencia: No se encontró la máscara para {mask_path}")
+            continue
+        mask = (mask > 0).astype(np.uint8)  # Binaria
+        imagenes.append(img)
+        mascaras.append(mask)
+    return imagenes, mascaras
+
+train_images, train_masks = carga_imagen(entrenamiento)
+val_images, val_masks = carga_imagen(val)
+test_images, test_masks = carga_imagen(test)
+
+def normalize(images):
+    return [img.astype(np.float32) / 255.0 for img in images]  # Conversión explícita
+
+train_images = normalize(train_images)
+val_images = normalize(val_images)
+test_images = normalize(test_images)
+
+# Corrección de iluminación (opcional)
+def corregir_iluminacion(img):
+    # Convertir a uint8 para CLAHE si está normalizada
+    if img.max() <= 1.0:
+        img = (img * 255).astype(np.uint8)
+    
+    lab = cv2.cvtColor(img, cv2.COLOR_RGB2LAB)
+    l, a, b = cv2.split(lab)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+    cl = clahe.apply(l)
+    limg = cv2.merge((cl,a,b))
+    result = cv2.cvtColor(limg, cv2.COLOR_LAB2RGB)
+    return result.astype(np.float32) / 255.0  # Normalizar de vuelta
+
+# Muestreo equilibrado CORREGIDO
+def muestreo_equilibrado(imagenes, mascaras, n=10000):
+    lesion_pixels = []
+    no_lesion_pixels = []
+    
+    for img, mask in zip(imagenes, mascaras):
+        # Extraer coordenadas donde mask == 1 y mask == 0
+        lesion_coords = np.where(mask == 1)
+        no_lesion_coords = np.where(mask == 0)
+        
+        # Extraer píxeles RGB usando las coordenadas
+        lesion_rgb = img[lesion_coords]  # Shape: (n_lesion_pixels, 3)
+        no_lesion_rgb = img[no_lesion_coords]  # Shape: (n_no_lesion_pixels, 3)
+        
+        lesion_pixels.extend(lesion_rgb)
+        no_lesion_pixels.extend(no_lesion_rgb)
+    
+    # Convertir a arrays numpy
+    lesion_pixels = np.array(lesion_pixels)
+    no_lesion_pixels = np.array(no_lesion_pixels)
+    
+    # Muestreo aleatorio equilibrado
+    n_per_class = min(n//2, len(lesion_pixels), len(no_lesion_pixels))
+    
+    lesion_indices = np.random.choice(len(lesion_pixels), n_per_class, replace=False)
+    no_lesion_indices = np.random.choice(len(no_lesion_pixels), n_per_class, replace=False)
+    
+    # Crear dataset final
+    X = np.vstack([lesion_pixels[lesion_indices], no_lesion_pixels[no_lesion_indices]])
+    y = np.hstack([np.ones(n_per_class), np.zeros(n_per_class)])
+    
+    # Mezclar los datos
+    shuffle_indices = np.random.permutation(len(X))
+    return X[shuffle_indices], y[shuffle_indices]
+
+# Procesar datos de entrenamiento, validación y test
+X_entrenamiento, y_entrenamiento = muestreo_equilibrado(train_images, train_masks, n=10000)
+X_validacion, y_validacion = muestreo_equilibrado(val_images, val_masks, n=5000)
+
+print("✓ Datos cargados, particionados y preprocesados correctamente")
+print(f"Entrenamiento: {X_entrenamiento.shape[0]} píxeles")
+print(f"Validación: {X_validacion.shape[0]} píxeles")
+print(f"Test: {len(test_images)} imágenes")
+print(f"Distribución entrenamiento - Lesión: {np.sum(y_entrenamiento)}, No-lesión: {np.sum(y_entrenamiento == 0)}") 
