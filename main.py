@@ -3,12 +3,13 @@ import glob
 from sklearn.model_selection import train_test_split
 import cv2
 import os
+import matplotlib.pyplot as plt
 
 seed = 42
 np.random.seed(seed)
 
 # ruta = C:/Users/benja/Desktop/ia/proyecto1-ia/dataset
-ruta = "C:/Users/pablo/OneDrive/Documentos/UCT/GitHub/proyecto1-ia/dataset"
+ruta = "C:/Users/benja/Desktop/ia/proyecto1-ia/dataset"
 
 # Lista de imágenes excluyendo las que son máscaras
 imagen_path = sorted([p for p in glob.glob(ruta + "/*.jpg") if "_expert" not in p])
@@ -101,3 +102,65 @@ print(f"Entrenamiento: {X_entrenamiento.shape[0]} píxeles")
 print(f"Validación: {X_validacion.shape[0]} píxeles")
 print(f"Test: {len(test_images)} imágenes")
 print(f"Distribución entrenamiento - Lesión: {np.sum(y_entrenamiento)}, No-lesión: {np.sum(y_entrenamiento == 0)}") 
+
+# ================================
+# HISTOGRAMAS Y ESTADÍSTICOS RGB
+# ================================
+
+def analizar_canales_rgb(imagenes, mascaras):
+    """Extrae píxeles de lesión y no-lesión para análisis"""
+    lesion_pixels = []
+    no_lesion_pixels = []
+    
+    for img, mask in zip(imagenes, mascaras):
+        lesion_coords = np.where(mask == 1)
+        no_lesion_coords = np.where(mask == 0)
+        
+        lesion_rgb = img[lesion_coords]
+        no_lesion_rgb = img[no_lesion_coords]
+        
+        lesion_pixels.extend(lesion_rgb)
+        no_lesion_pixels.extend(no_lesion_rgb)
+    
+    return np.array(lesion_pixels), np.array(no_lesion_pixels)
+
+# Extraer píxeles de entrenamiento
+lesion_pixels, no_lesion_pixels = analizar_canales_rgb(train_images, train_masks)
+
+print(f"\nPíxeles extraídos:")
+print(f"Lesión: {len(lesion_pixels):,}")
+print(f"No-lesión: {len(no_lesion_pixels):,}")
+
+# Estadísticos por canal
+canales = ['R', 'G', 'B']
+print(f"\nEstadísticos por canal:")
+print("-" * 60)
+
+for i, canal in enumerate(canales):
+    lesion_canal = lesion_pixels[:, i]
+    no_lesion_canal = no_lesion_pixels[:, i]
+    
+    print(f"\nCanal {canal}:")
+    print(f"  Lesión    - Media: {np.mean(lesion_canal):.4f}, Std: {np.std(lesion_canal):.4f}")
+    print(f"  No-lesión - Media: {np.mean(no_lesion_canal):.4f}, Std: {np.std(no_lesion_canal):.4f}")
+
+# Histogramas
+fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+colors = ['red', 'green', 'blue']
+
+for i, (canal, color) in enumerate(zip(canales, colors)):
+    lesion_canal = lesion_pixels[:, i]
+    no_lesion_canal = no_lesion_pixels[:, i]
+    
+    axes[i].hist(no_lesion_canal, bins=50, alpha=0.7, label='No-lesión', color='lightblue', density=True)
+    axes[i].hist(lesion_canal, bins=50, alpha=0.7, label='Lesión', color=color, density=True)
+    axes[i].set_title(f'Histograma Canal {canal}')
+    axes[i].set_xlabel(f'Intensidad {canal}')
+    axes[i].set_ylabel('Densidad')
+    axes[i].legend()
+    axes[i].grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+
+print("\n✓ Análisis de histogramas y estadísticos RGB completado")
