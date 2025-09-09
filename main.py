@@ -1,10 +1,10 @@
 import numpy as np
 import glob
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, precision_score, confusion_matrix, classification_report, ConfusionMatrixDisplay
+from sklearn.metrics import accuracy_score, precision_score, roc_curve, auc,confusion_matrix, classification_report, ConfusionMatrixDisplay
+from sklearn.decomposition import PCA
 from scipy.stats import multivariate_normal
 import cv2
-import os
 import matplotlib.pyplot as plt
 
 seed = 42
@@ -12,7 +12,7 @@ np.random.seed(seed)
 
 # "C:/Users/pablo/OneDrive/Documentos/UCT/GitHub/proyecto1-ia/dataset"
 # ruta = C:/Users/benja/Desktop/ia/proyecto1-ia/dataset
-ruta = "C:/Users/pablo/OneDrive/Documentos/UCT/GitHub/proyecto1-ia/dataset"
+ruta = "C:/Users/benja/Desktop/a/proyecto1-ia/dataset"
 
 # Lista de imágenes excluyendo las que son máscaras
 imagen_path = sorted([p for p in glob.glob(ruta + "/*.jpg") if "_expert" not in p])
@@ -208,8 +208,13 @@ def clasificar_bayes(X, umbral=1.0):
 # EVALUACIÓN EN VALIDACIÓN
 # ================================
 
-# Clasificar datos de validación
-y_pred = clasificar_bayes(X_validacion, umbral=1.0)
+# Clasificar datos de validación (reutilizando densidades)
+# Calcular densidades una vez y reutilizar
+p_lesion_val = dist_lesion.pdf(X_validacion)
+p_no_lesion_val = dist_no_lesion.pdf(X_validacion)
+razon_val = p_lesion_val / (p_no_lesion_val + 1e-12)
+# Decisión con umbral = 1.0
+y_pred = (razon_val > 1.0).astype(int)
 
 # Matriz de confusión
 matrix_confusion= confusion_matrix(y_validacion, y_pred)
@@ -229,9 +234,6 @@ print("\nReporte de clasificación:\n", classification_report(y_validacion, y_pr
 # ================================
 # CLASIFICADOR BAYESIANO + PCA
 # ================================
-
-from sklearn.decomposition import PCA
-from sklearn.metrics import roc_curve, auc
 
 # Aplicar PCA solo a los datos de entrenamiento (evitar leakage)
 print("\nAplicando PCA a los datos...")
@@ -291,8 +293,12 @@ def clasificar_bayes_pca(X_pca, umbral=1.0):
     # Decisión
     return (razon > umbral).astype(int)
 
-# Evaluar clasificador PCA en validación
-y_pred_pca = clasificar_bayes_pca(X_validacion_pca, umbral=1.0)
+# Evaluar clasificador PCA en validación (reutilizando densidades)
+p_lesion_pca_val = dist_lesion_pca.pdf(X_validacion_pca)
+p_no_lesion_pca_val = dist_no_lesion_pca.pdf(X_validacion_pca)
+razon_pca = p_lesion_pca_val / (p_no_lesion_pca_val + 1e-12)
+# Decisión con umbral = 1.0
+y_pred_pca = (razon_pca > 1.0).astype(int)
 
 # Matriz de confusión para PCA
 matrix_confusion_pca = confusion_matrix(y_validacion, y_pred_pca)
@@ -312,3 +318,51 @@ print("\nCOMPARACIÓN CON CLASIFICADOR RGB COMPLETO:")
 print("Accuracy RGB: {:.4f} vs Accuracy PCA: {:.4f}".format(
     accuracy_score(y_validacion, y_pred), 
     accuracy_score(y_validacion, y_pred_pca)))
+
+# ================================
+# CURVAS ROC Y PUNTO DE OPERACIÓN (Youden J óptimo)
+# ================================
+
+# Scores (razón de verosimilitud) para validación
+scores_rgb = dist_lesion.pdf(X_validacion) / (dist_no_lesion.pdf(X_validacion) + 1e-12)
+scores_pca = dist_lesion_pca.pdf(X_validacion_pca) / (dist_no_lesion_pca.pdf(X_validacion_pca) + 1e-12)
+
+# ROC para RGB
+fpr_r, tpr_r, thr_r = roc_curve(y_validacion, scores_rgb)
+auc_r = auc(fpr_r, tpr_r)
+youden_idx_r = np.argmax(tpr_r - fpr_r)
+youden_thr_r = thr_r[youden_idx_r]
+youden_tpr_r = tpr_r[youden_idx_r]
+youden_fpr_r = fpr_r[youden_idx_r]
+
+# ROC para PCA
+fpr_p, tpr_p, thr_p = roc_curve(y_validacion, scores_pca)
+auc_p = auc(fpr_p, tpr_p)
+youden_idx_p = np.argmax(tpr_p - fpr_p)
+youden_thr_p = thr_p[youden_idx_p]
+youden_tpr_p = tpr_p[youden_idx_p]
+youden_fpr_p = fpr_p[youden_idx_p]
+
+# Plots
+plt.figure(figsize=(8,6))
+plt.plot(fpr_r, tpr_r, label=f'RGB (AUC={auc_r:.3f})', lw=2)
+plt.plot(fpr_p, tpr_p, label=f'PCA (AUC={auc_p:.3f})', lw=2)
+plt.scatter([youden_fpr_r], [youden_tpr_r], c='C0', s=60, marker='o', label=f'Youden RGB (thr={youden_thr_r:.3e})')
+plt.scatter([youden_fpr_p], [youden_tpr_p], c='C1', s=60, marker='s', label=f'Youden PCA (thr={youden_thr_p:.3e})')
+plt.plot([0,1],[0,1],'k--', alpha=0.5)
+plt.xlabel('Tasa de Falsos Positivos (1 - Especificidad)')
+plt.ylabel('Tasa de Verdaderos Positivos (Sensibilidad)')
+plt.title('Curvas ROC - RGB vs PCA')
+plt.legend(loc='lower right')
+plt.grid(alpha=0.3)
+plt.show()
+
+# Imprimir resumen de puntos de operación (Youden J)
+print('\nPUNTO DE OPERACIÓN (Youden J óptimo):')
+print(f'RGB - AUC: {auc_r:.4f}, Youden thr: {youden_thr_r:.6e}, TPR: {youden_tpr_r:.4f}, FPR: {youden_fpr_r:.4f}')
+print(f'PCA - AUC: {auc_p:.4f}, Youden thr: {youden_thr_p:.6e}, TPR: {youden_tpr_p:.4f}, FPR: {youden_fpr_p:.4f}')
+
+# Justificación breve:
+print('\nJustificación del criterio elegido: Índice de Youden (J)') 
+print('Youden maximiza (TPR - FPR), eligiendo un punto que balancea sensibilidad y especificidad.') 
+print('Es simple de explicar y apropiado cuando se desea buen compromiso entre ambos errores.')
