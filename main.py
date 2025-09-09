@@ -1,6 +1,11 @@
 import numpy as np
 import glob
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, precision_score, confusion_matrix, classification_report, ConfusionMatrixDisplay
+
+
+
+from scipy.stats import multivariate_normal
 import cv2
 import os
 import matplotlib.pyplot as plt
@@ -9,7 +14,7 @@ seed = 42
 np.random.seed(seed)
 
 # ruta = C:/Users/benja/Desktop/ia/proyecto1-ia/dataset
-ruta = "C:/Users/benja/Desktop/ia/proyecto1-ia/dataset"
+ruta = "C:/Users/benja/Desktop/a/proyecto1-ia/dataset"
 
 # Lista de imágenes excluyendo las que son máscaras
 imagen_path = sorted([p for p in glob.glob(ruta + "/*.jpg") if "_expert" not in p])
@@ -164,3 +169,64 @@ plt.tight_layout()
 plt.show()
 
 print("\n✓ Análisis de histogramas y estadísticos RGB completado")
+
+# ================================
+# MODELO BAYESIANO MULTIVARIADO
+# ================================
+
+# Calcular medias y covarianzas de cada clase
+mu_lesion = np.mean(lesion_pixels, axis=0)
+cov_lesion = np.cov(lesion_pixels, rowvar=False)
+
+mu_no_lesion = np.mean(no_lesion_pixels, axis=0)
+cov_no_lesion = np.cov(no_lesion_pixels, rowvar=False)
+
+print("\nParámetros estimados (Bayesiano):")
+print("Lesión -> media:", mu_lesion, "\nCovarianza:\n", cov_lesion)
+print("No-lesión -> media:", mu_no_lesion, "\nCovarianza:\n", cov_no_lesion)
+
+# Definir distribuciones gaussianas
+dist_lesion = multivariate_normal(mean=mu_lesion, cov=cov_lesion)
+dist_no_lesion = multivariate_normal(mean=mu_no_lesion, cov=cov_no_lesion)
+
+# ================================
+# CLASIFICADOR BAYESIANO
+# ================================
+# Umbral = 1.0 (criterio: equiprobabilidad)
+# Justificación: Cuando p(lesión|RGB) = p(no-lesión|RGB), la razón = 1.0
+# Esto asume que ambas clases tienen igual probabilidad a priori
+def clasificar_bayes(X, umbral=1.0):
+    """Clasifica píxeles RGB usando razón de verosimilitud"""
+    p_lesion = dist_lesion.pdf(X)
+    p_no_lesion = dist_no_lesion.pdf(X)
+
+    # Razón de verosimilitudes
+    razon = p_lesion / (p_no_lesion + 1e-12)  # evitar división por 0
+
+    # Decisión
+    return (razon > umbral).astype(int)
+
+# ================================
+# EVALUACIÓN EN VALIDACIÓN
+# ================================
+
+# Clasificar datos de validación
+y_pred = clasificar_bayes(X_validacion, umbral=1.0)
+
+# Matriz de confusión
+matrix_confusion= confusion_matrix(y_validacion, y_pred)
+vis = ConfusionMatrixDisplay(matrix_confusion, display_labels=["No-lesión", "Lesión"])
+vis.plot()
+plt.title("Matriz de Confusión")
+plt.show()
+
+
+
+# Evaluación
+print("\nResultados en VALIDACIÓN:")
+print("Accuracy:", accuracy_score(y_validacion, y_pred))
+print("Precision:", precision_score(y_validacion, y_pred))
+print("\nReporte de clasificación:\n", classification_report(y_validacion, y_pred, target_names=["No-lesión", "Lesión"]))
+
+
+
