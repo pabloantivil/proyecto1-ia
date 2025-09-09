@@ -2,9 +2,6 @@ import numpy as np
 import glob
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, precision_score, confusion_matrix, classification_report, ConfusionMatrixDisplay
-
-
-
 from scipy.stats import multivariate_normal
 import cv2
 import os
@@ -13,8 +10,9 @@ import matplotlib.pyplot as plt
 seed = 42
 np.random.seed(seed)
 
+# "C:/Users/pablo/OneDrive/Documentos/UCT/GitHub/proyecto1-ia/dataset"
 # ruta = C:/Users/benja/Desktop/ia/proyecto1-ia/dataset
-ruta = "C:/Users/benja/Desktop/a/proyecto1-ia/dataset"
+ruta = "C:/Users/pablo/OneDrive/Documentos/UCT/GitHub/proyecto1-ia/dataset"
 
 # Lista de imágenes excluyendo las que son máscaras
 imagen_path = sorted([p for p in glob.glob(ruta + "/*.jpg") if "_expert" not in p])
@@ -221,7 +219,6 @@ plt.title("Matriz de Confusión")
 plt.show()
 
 
-
 # Evaluación
 print("\nResultados en VALIDACIÓN:")
 print("Accuracy:", accuracy_score(y_validacion, y_pred))
@@ -229,4 +226,89 @@ print("Precision:", precision_score(y_validacion, y_pred))
 print("\nReporte de clasificación:\n", classification_report(y_validacion, y_pred, target_names=["No-lesión", "Lesión"]))
 
 
+# ================================
+# CLASIFICADOR BAYESIANO + PCA
+# ================================
 
+from sklearn.decomposition import PCA
+from sklearn.metrics import roc_curve, auc
+
+# Aplicar PCA solo a los datos de entrenamiento (evitar leakage)
+print("\nAplicando PCA a los datos...")
+pca = PCA()
+X_entrenamiento_pca = pca.fit_transform(X_entrenamiento)
+
+# Calcular varianza acumulada
+varianza_acumulada = np.cumsum(pca.explained_variance_ratio_)
+
+# Seleccionar número de componentes que explican al menos el 95% de varianza
+n_componentes = np.argmax(varianza_acumulada >= 0.95) + 1
+print(f"Número de componentes seleccionados: {n_componentes}")
+print(f"Varianza explicada: {varianza_acumulada[n_componentes-1]:.4f}")
+
+# Justificación de la selección
+print("\nJustificación: Se seleccionaron", n_componentes, 
+      "componentes principales que explican el",
+      f"{varianza_acumulada[n_componentes-1]*100:.2f}% de la varianza.")
+print("Esto permite reducir la dimensionalidad manteniendo la mayor parte de la información.")
+
+# Reentrenar PCA con el número de componentes seleccionado
+pca = PCA(n_components=n_componentes)
+X_entrenamiento_pca = pca.fit_transform(X_entrenamiento)
+X_validacion_pca = pca.transform(X_validacion)
+
+# Separar píxeles por clase en el espacio PCA
+lesion_pixels_pca = X_entrenamiento_pca[y_entrenamiento == 1]
+no_lesion_pixels_pca = X_entrenamiento_pca[y_entrenamiento == 0]
+
+# Calcular medias y covarianzas de cada clase en el espacio PCA
+mu_lesion_pca = np.mean(lesion_pixels_pca, axis=0)
+cov_lesion_pca = np.cov(lesion_pixels_pca, rowvar=False)
+
+mu_no_lesion_pca = np.mean(no_lesion_pixels_pca, axis=0)
+cov_no_lesion_pca = np.cov(no_lesion_pixels_pca, rowvar=False)
+
+print("\nParámetros estimados (Bayesiano + PCA):")
+print("Lesión -> media:", mu_lesion_pca, "\nCovarianza:\n", cov_lesion_pca)
+print("No-lesión -> media:", mu_no_lesion_pca, "\nCovarianza:\n", cov_no_lesion_pca)
+
+# Definir distribuciones gaussianas en espacio PCA
+dist_lesion_pca = multivariate_normal(mean=mu_lesion_pca, cov=cov_lesion_pca, allow_singular=True)
+dist_no_lesion_pca = multivariate_normal(mean=mu_no_lesion_pca, cov=cov_no_lesion_pca, allow_singular=True)
+
+# Clasificador bayesiano en espacio PCA
+# Umbral = 1.0 (criterio: equiprobabilidad)
+# Justificación: Cuando p(lesión|RGB) = p(no-lesión|RGB), la razón = 1.0
+# Esto asume que ambas clases tienen igual probabilidad a priori
+def clasificar_bayes_pca(X_pca, umbral=1.0):
+    """Clasifica píxeles en espacio PCA usando razón de verosimilitud"""
+    p_lesion = dist_lesion_pca.pdf(X_pca)
+    p_no_lesion = dist_no_lesion_pca.pdf(X_pca)
+
+    # Razón de verosimilitudes
+    razon = p_lesion / (p_no_lesion + 1e-12)  # evitar división por 0
+
+    # Decisión
+    return (razon > umbral).astype(int)
+
+# Evaluar clasificador PCA en validación
+y_pred_pca = clasificar_bayes_pca(X_validacion_pca, umbral=1.0)
+
+# Matriz de confusión para PCA
+matrix_confusion_pca = confusion_matrix(y_validacion, y_pred_pca)
+vis_pca = ConfusionMatrixDisplay(matrix_confusion_pca, display_labels=["No-lesión", "Lesión"])
+vis_pca.plot()
+plt.title("Matriz de Confusión - Bayesiano + PCA")
+plt.show()
+
+# Evaluación
+print("\nResultados en VALIDACIÓN (Bayesiano + PCA):")
+print("Accuracy:", accuracy_score(y_validacion, y_pred_pca))
+print("Precision:", precision_score(y_validacion, y_pred_pca))
+print("\nReporte de clasificación:\n", classification_report(y_validacion, y_pred_pca, target_names=["No-lesión", "Lesión"]))
+
+# Comparación con el clasificador sin PCA
+print("\nCOMPARACIÓN CON CLASIFICADOR RGB COMPLETO:")
+print("Accuracy RGB: {:.4f} vs Accuracy PCA: {:.4f}".format(
+    accuracy_score(y_validacion, y_pred), 
+    accuracy_score(y_validacion, y_pred_pca)))
