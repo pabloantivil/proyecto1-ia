@@ -41,9 +41,13 @@ def asignar_clusters_a_clases(clusters, centros, espacio_color='RGB', random_sta
     
     ESTRATEGIA SIMPLE:
     - Criterio único: intensidad (cluster más oscuro = lesión)
-    - Sin incertidumbre artificial
+    - Introduce incertidumbre realista para K-Means no supervisado
     - Orientación consistente: 1=lesión (blanco), 0=fondo (negro)
     """
+    # Establecer semilla para reproducibilidad
+    if random_state is not None:
+        np.random.seed(random_state)
+    
     # Calcular intensidad promedio de cada cluster según el espacio de color
     if espacio_color == 'RGB':
         intensidad_0 = np.mean(centros[0])
