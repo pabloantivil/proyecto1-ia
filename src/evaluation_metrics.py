@@ -228,6 +228,8 @@ def ejecutar_comparacion_final(test_images, test_masks, clasificar_bayes_func, c
 def mostrar_curvas_roc_main2(resultado_rgb, resultado_pca):
     """Muestra las curvas ROC comparativas exactamente como en main2.py"""
     from sklearn.metrics import roc_curve, auc
+    import numpy as np
+    import matplotlib.pyplot as plt
     
     print("\\n" + "="*50)
     print("3.4 CURVAS ROC Y PUNTO DE OPERACIÓN")
@@ -248,32 +250,40 @@ def mostrar_curvas_roc_main2(resultado_rgb, resultado_pca):
     print(f"AUC Bayesiano RGB: {auc_rgb:.4f}")
     print(f"AUC Bayesiano PCA: {auc_pca:.4f}")
     
-    # Mostrar curvas ROC
-    plt.figure(figsize=(12, 5))
+    # Mostrar curvas ROC comparativas en una sola gráfica
+    plt.figure(figsize=(10, 8))
     
     # Curva ROC Bayesiano RGB
-    plt.subplot(1, 2, 1)
-    plt.plot(fpr, tpr, 'b-', linewidth=2, label=f'Bayesiano RGB (AUC = {auc_rgb:.3f})')
-    plt.plot([0, 1], [0, 1], 'k--', alpha=0.5)
-    plt.xlim([0.0, 1.0])
-    plt.ylim([0.0, 1.05])
-    plt.xlabel('Tasa de Falsos Positivos')
-    plt.ylabel('Tasa de Verdaderos Positivos')
-    plt.title('Curva ROC - Bayesiano RGB')
-    plt.legend(loc="lower right")
-    plt.grid(alpha=0.3)
+    plt.plot(fpr, tpr, 'b-', linewidth=3, label=f'Bayesiano RGB (AUC = {auc_rgb:.3f})')
     
     # Curva ROC Bayesiano PCA
-    plt.subplot(1, 2, 2)
-    plt.plot(fpr_pca, tpr_pca, 'r-', linewidth=2, label=f'Bayesiano PCA (AUC = {auc_pca:.3f})')
-    plt.plot([0, 1], [0, 1], 'k--', alpha=0.5)
+    plt.plot(fpr_pca, tpr_pca, 'r-', linewidth=3, label=f'Bayesiano PCA (AUC = {auc_pca:.3f})')
+    
+    # Línea diagonal de referencia (clasificador aleatorio)
+    plt.plot([0, 1], [0, 1], 'k--', linewidth=2, alpha=0.7, label='Clasificador Aleatorio (AUC = 0.5)')
+    
+    # Configuración de la gráfica
     plt.xlim([0.0, 1.0])
     plt.ylim([0.0, 1.05])
-    plt.xlabel('Tasa de Falsos Positivos')
-    plt.ylabel('Tasa de Verdaderos Positivos')
-    plt.title('Curva ROC - Bayesiano PCA')
-    plt.legend(loc="lower right")
+    plt.xlabel('Tasa de Falsos Positivos (FPR)', fontsize=12)
+    plt.ylabel('Tasa de Verdaderos Positivos (TPR)', fontsize=12)
+    plt.title('Comparación de Curvas ROC - Clasificadores Bayesianos', fontsize=14, fontweight='bold')
+    plt.legend(loc="lower right", fontsize=11)
     plt.grid(alpha=0.3)
+    
+    # Agregar anotaciones para los puntos óptimos
+    # Encontrar índices de los puntos óptimos usando Youden
+    idx_opt_rgb = np.argmax(tpr + (1 - fpr) - 1)
+    idx_opt_pca = np.argmax(tpr_pca + (1 - fpr_pca) - 1)
+    
+    # Marcar puntos óptimos
+    plt.plot(fpr[idx_opt_rgb], tpr[idx_opt_rgb], 'bo', markersize=8, 
+             label=f'Punto Óptimo RGB (J={tpr[idx_opt_rgb] + (1-fpr[idx_opt_rgb]) - 1:.3f})')
+    plt.plot(fpr_pca[idx_opt_pca], tpr_pca[idx_opt_pca], 'ro', markersize=8,
+             label=f'Punto Óptimo PCA (J={tpr_pca[idx_opt_pca] + (1-fpr_pca[idx_opt_pca]) - 1:.3f})')
+    
+    # Actualizar leyenda para incluir los puntos óptimos
+    plt.legend(loc="lower right", fontsize=10)
     
     plt.tight_layout()
     plt.show()
