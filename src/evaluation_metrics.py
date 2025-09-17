@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, jaccard_score
-from .kmeans_clustering import asignar_clusters_a_clases
+from kmeans_clustering import asignar_clusters_a_clases
 import cv2
 
 def evaluar_clasificador_en_test(mascaras_reales, mascaras_predichas, nombre_clasificador):
@@ -320,7 +320,7 @@ def comparacion_final_main2(test_images, test_masks, resultado_kmeans, resultado
     
     # 1. Aplicar K-Means a las imágenes de test
     print("Aplicando K-Means a imágenes de test...")
-    from .kmeans_clustering import aplicar_kmeans_imagen
+    from kmeans_clustering import aplicar_kmeans_imagen
     mejor_espacio = resultado_kmeans['mejor_espacio']
     mascaras_kmeans = []
     mascaras_kmeans_visualizacion = []  # Para visualización sin degradar
