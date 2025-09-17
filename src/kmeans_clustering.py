@@ -134,10 +134,10 @@ def visualizar_resultados_kmeans(imagenes_test, mascaras_test, mejor_espacio, se
     Visualiza los resultados de K-Means para el mejor espacio de color
     """
     # Seleccionar algunas imágenes para visualización
-    indices_visualizacion = [0, 1, 2]  # Primeras 3 imágenes
+    indices_visualizacion = [0, 4] 
     
     fig = plt.figure(figsize=(15, 10))
-    gs = gridspec.GridSpec(3, 4, figure=fig)
+    gs = gridspec.GridSpec(2, 4, figure=fig)
     
     for i, idx in enumerate(indices_visualizacion):
         img = imagenes_test[idx]
@@ -228,16 +228,6 @@ def analisis_completo_kmeans_main2(imagenes_val, mascaras_val, seed=42):
         'asignar_clusters_a_clases_func': asignar_clusters_a_clases
     }
     
-    # Asignar el cluster con mayor superposición a lesión
-    if lesion_overlap_0 > lesion_overlap_1:
-        lesion_cluster = 0
-    else:
-        lesion_cluster = 1
-    
-    # Crear máscara predicha
-    mask_pred = (clusters == lesion_cluster).astype(np.uint8)
-    
-    return mask_pred
 
 def evaluar_kmeans_espacios_color(imagenes_test, mascaras_test, espacios_color):
     """
@@ -276,10 +266,10 @@ def visualizar_resultados_kmeans(imagenes_test, mascaras_test, mejor_espacio):
     Visualiza los resultados de K-Means para el mejor espacio de color
     """
     # Seleccionar algunas imágenes para visualización
-    indices_visualizacion = [0, 1, 2]  # Primeras 3 imágenes
+    indices_visualizacion = [0, 4] 
     
     fig = plt.figure(figsize=(15, 10))
-    gs = gridspec.GridSpec(3, 4, figure=fig)
+    gs = gridspec.GridSpec(2, 4, figure=fig)
     
     for i, idx in enumerate(indices_visualizacion):
         img = imagenes_test[idx]

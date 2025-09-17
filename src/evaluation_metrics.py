@@ -129,7 +129,7 @@ def visualizar_comparacion_final(imagenes_test, mascaras_test, resultados):
     Visualiza la comparación de los tres clasificadores
     """
     # Seleccionar algunas imágenes para visualización
-    indices_visualizacion = [20, 2, 2]  # Primeras 3 imágenes
+    indices_visualizacion = [20, 21] 
     
     # Calcular métricas para los títulos
     jaccard_rgb = resultados['Bayesiano-RGB']['jaccard']
@@ -144,7 +144,7 @@ def visualizar_comparacion_final(imagenes_test, mascaras_test, resultados):
     ], key=lambda x: x[1], reverse=True)
     
     fig = plt.figure(figsize=(20, 15))
-    gs = gridspec.GridSpec(3, 5, figure=fig)
+    gs = gridspec.GridSpec(2, 5, figure=fig)
     
     for i, idx in enumerate(indices_visualizacion):
         img = imagenes_test[idx]
