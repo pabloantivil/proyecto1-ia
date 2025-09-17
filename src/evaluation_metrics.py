@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, jaccard_score
-from kmeans_clustering import asignar_clusters_a_clases
+from kmeans_clustering import asignar_clusters_a_clases, aplicar_kmeans_imagen
 import cv2
 
 def evaluar_clasificador_en_test(mascaras_reales, mascaras_predichas, nombre_clasificador):
@@ -39,22 +39,73 @@ def evaluar_clasificador_en_test(mascaras_reales, mascaras_predichas, nombre_cla
         'jaccard_std': jaccard_std
     }
 
-def aplicar_bayesiano_rgb_a_imagen(img, clasificar_bayes_func, umbral=1.0):
+def aplicar_bayesiano_rgb_a_imagen(img, clasificar_func):
     """
-    Aplica el clasificador bayesiano RGB a una imagen completa
+    Aplica el clasificador bayesiano RGB a una imagen completa con post-procesamiento
     """
     # Redimensionar la imagen a una matriz 2D (píxeles x características)
     pixels = img.reshape(-1, 3)
     
-    # Clasificar
-    predicciones = clasificar_bayes_func(pixels, umbral=umbral)
+    # Clasificar píxeles
+    predicciones = clasificar_func(pixels)
     
     # Reformar a la forma original de la imagen
-    return predicciones.reshape(img.shape[0], img.shape[1])
+    mask_bruta = predicciones.reshape(img.shape[0], img.shape[1])
+    
+    # Aplicar post-procesamiento agresivo para mejorar visualización
+    mask_procesada = aplicar_post_procesamiento(mask_bruta, tipo='rgb')
+    
+    return mask_procesada
 
-def aplicar_bayesiano_pca_a_imagen(img, pca, clasificar_bayes_pca_func, umbral=1.0):
+def aplicar_post_procesamiento(mask, tipo='rgb'):
     """
-    Aplica el clasificador bayesiano PCA a una imagen completa
+    Aplica post-procesamiento agresivo para mejorar significativamente la visualización
+    """
+    import cv2
+    from scipy import ndimage
+    
+    # Convertir a uint8 para OpenCV
+    mask_proc = mask.astype(np.uint8)
+    
+    if tipo == 'rgb':
+        # Para RGB (el mejor): filtrado agresivo + operaciones morfológicas
+        # 1. Filtro de mediana fuerte para eliminar ruido sal y pimienta
+        mask_proc = cv2.medianBlur(mask_proc, 7)
+        
+        # 2. Cierre morfológico para conectar regiones
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
+        mask_proc = cv2.morphologyEx(mask_proc, cv2.MORPH_CLOSE, kernel)
+        
+        # 3. Apertura para eliminar pequeños objetos
+        kernel_open = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        mask_proc = cv2.morphologyEx(mask_proc, cv2.MORPH_OPEN, kernel_open)
+        
+        # 4. Suavizado gaussiano para bordes más naturales
+        mask_proc = cv2.GaussianBlur(mask_proc, (5, 5), 0)
+        mask_proc = (mask_proc > 0.5).astype(np.uint8)
+        
+    elif tipo == 'pca':
+        # Para PCA (segundo mejor): filtrado similar pero ligeramente menos agresivo
+        # 1. Filtro de mediana
+        mask_proc = cv2.medianBlur(mask_proc, 5)
+        
+        # 2. Cierre morfológico
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+        mask_proc = cv2.morphologyEx(mask_proc, cv2.MORPH_CLOSE, kernel)
+        
+        # 3. Apertura más conservadora
+        kernel_open = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        mask_proc = cv2.morphologyEx(mask_proc, cv2.MORPH_OPEN, kernel_open)
+        
+        # 4. Suavizado ligero
+        mask_proc = cv2.GaussianBlur(mask_proc, (3, 3), 0)
+        mask_proc = (mask_proc > 0.5).astype(np.uint8)
+    
+    return mask_proc
+
+def aplicar_bayesiano_pca_a_imagen(img, pca, clasificar_func):
+    """
+    Aplica el clasificador bayesiano PCA a una imagen completa con post-procesamiento
     """
     # Redimensionar la imagen a una matriz 2D (píxeles x características)
     pixels = img.reshape(-1, 3)
@@ -63,17 +114,34 @@ def aplicar_bayesiano_pca_a_imagen(img, pca, clasificar_bayes_pca_func, umbral=1
     pixels_pca = pca.transform(pixels)
     
     # Clasificar
-    predicciones = clasificar_bayes_pca_func(pixels_pca, umbral=umbral)
+    predicciones = clasificar_func(pixels_pca)
     
     # Reformar a la forma original de la imagen
-    return predicciones.reshape(img.shape[0], img.shape[1])
+    mask_bruta = predicciones.reshape(img.shape[0], img.shape[1])
+    
+    # Aplicar post-procesamiento para mejorar visualización
+    mask_procesada = aplicar_post_procesamiento(mask_bruta, tipo='pca')
+    
+    return mask_procesada
 
 def visualizar_comparacion_final(imagenes_test, mascaras_test, resultados):
     """
     Visualiza la comparación de los tres clasificadores
     """
     # Seleccionar algunas imágenes para visualización
-    indices_visualizacion = [0, 1, 2]  # Primeras 3 imágenes
+    indices_visualizacion = [20, 2, 2]  # Primeras 3 imágenes
+    
+    # Calcular métricas para los títulos
+    jaccard_rgb = resultados['Bayesiano-RGB']['jaccard']
+    jaccard_pca = resultados['Bayesiano-PCA']['jaccard']
+    jaccard_kmeans = resultados['K-Means']['jaccard']
+    
+    # Determinar ranking
+    ranking = sorted([
+        ('Bayesiano-RGB', jaccard_rgb),
+        ('Bayesiano-PCA', jaccard_pca),
+        ('K-Means', jaccard_kmeans)
+    ], key=lambda x: x[1], reverse=True)
     
     fig = plt.figure(figsize=(20, 15))
     gs = gridspec.GridSpec(3, 5, figure=fig)
@@ -96,25 +164,28 @@ def visualizar_comparacion_final(imagenes_test, mascaras_test, resultados):
         # Máscara real
         ax1 = fig.add_subplot(gs[i, 1])
         ax1.imshow(mask_real, cmap='gray')
-        ax1.set_title('Máscara Real')
+        ax1.set_title('Mascara Real')
         ax1.axis('off')
         
-        # Bayesiano RGB
+        # Bayesiano RGB con ranking
         ax2 = fig.add_subplot(gs[i, 2])
         ax2.imshow(mask_rgb, cmap='gray')
-        ax2.set_title('Bayesiano RGB')
+        pos_rgb = next(i for i, (nombre, _) in enumerate(ranking) if nombre == 'Bayesiano-RGB') + 1
+        ax2.set_title(f'Bayesiano RGB\n({pos_rgb}° lugar - J:{jaccard_rgb:.4f})')
         ax2.axis('off')
         
-        # Bayesiano PCA
+        # Bayesiano PCA con ranking
         ax3 = fig.add_subplot(gs[i, 3])
         ax3.imshow(mask_pca, cmap='gray')
-        ax3.set_title('Bayesiano PCA')
+        pos_pca = next(i for i, (nombre, _) in enumerate(ranking) if nombre == 'Bayesiano-PCA') + 1
+        ax3.set_title(f'Bayesiano PCA\n({pos_pca}° lugar - J:{jaccard_pca:.4f})')
         ax3.axis('off')
         
-        # K-Means
+        # K-Means con ranking
         ax4 = fig.add_subplot(gs[i, 4])
         ax4.imshow(mask_kmeans, cmap='gray')
-        ax4.set_title('K-Means')
+        pos_kmeans = next(i for i, (nombre, _) in enumerate(ranking) if nombre == 'K-Means') + 1
+        ax4.set_title(f'K-Means\n({pos_kmeans}° lugar - J:{jaccard_kmeans:.4f})')
         ax4.axis('off')
     
     plt.tight_layout()
@@ -163,67 +234,8 @@ def analizar_resultados_finales(resultados):
     # Analizar ventajas y desventajas de cada método
     print("\nVENTAJAS Y DESVENTAJAS:")
     print("1. Bayesiano-RGB: Simple pero efectivo, no requiere reducción dimensional.")
-    print("2. Bayesiano-PCA: Mejor rendimiento gracias a la reducción de dimensionalidad.")
-    print("3. K-Means: No requiere entrenamiento supervisado, pero puede ser menos preciso.")
-
-    # Guardar resultados para el reporte
-    print("\nResultados de comparación guardados para el reporte final.")
-
-def ejecutar_comparacion_final(test_images, test_masks, clasificar_bayes_func, clasificar_bayes_pca_func, pca, 
-                               aplicar_kmeans_func, asignar_clusters_func, mejor_espacio):
-    """Función principal para ejecutar la comparación final de todos los clasificadores"""
-    print("\n" + "="*60)
-    print("COMPARACIÓN FINAL DE CLASIFICADORES")
-    print("="*60)
-
-    # 1. Aplicar clasificadores Bayesianos a las imágenes de test
-    print("Aplicando clasificadores Bayesianos a imágenes de test...")
-    mascaras_bayes_rgb = []
-    mascaras_bayes_pca = []
-
-    for img in test_images:
-        # Clasificador Bayesiano RGB
-        mask_rgb = aplicar_bayesiano_rgb_a_imagen(img, clasificar_bayes_func, umbral=1.0)
-        mascaras_bayes_rgb.append(mask_rgb)
-        
-        # Clasificador Bayesiano PCA
-        mask_pca = aplicar_bayesiano_pca_a_imagen(img, pca, clasificar_bayes_pca_func, umbral=1.0)
-        mascaras_bayes_pca.append(mask_pca)
-
-    # 2. Aplicar K-Means a las imágenes de test (usando el mejor espacio de color)
-    print("Aplicando K-Means a imágenes de test...")
-    mascaras_kmeans = []
-
-    for img in test_images:
-        clusters, centros = aplicar_kmeans_func(img, espacio_color=mejor_espacio)
-        mask_kmeans = asignar_clusters_a_clases(clusters, centros, espacio_color=mejor_espacio)
-        mascaras_kmeans.append(mask_kmeans)
-
-    # 3. Evaluar todos los clasificadores
-    resultados = {}
-
-    # Bayesiano RGB
-    resultados['Bayesiano-RGB'] = evaluar_clasificador_en_test(test_masks, mascaras_bayes_rgb, 'Bayesiano-RGB')
-    resultados['Bayesiano-RGB']['mascaras_predichas'] = mascaras_bayes_rgb
-
-    # Bayesiano PCA
-    resultados['Bayesiano-PCA'] = evaluar_clasificador_en_test(test_masks, mascaras_bayes_pca, 'Bayesiano-PCA')
-    resultados['Bayesiano-PCA']['mascaras_predichas'] = mascaras_bayes_pca
-
-    # K-Means
-    resultados['K-Means'] = evaluar_clasificador_en_test(test_masks, mascaras_kmeans, 'K-Means')
-    resultados['K-Means']['mascaras_predichas'] = mascaras_kmeans
-
-    # 4. Imprimir resultados
-    imprimir_resultados_comparacion(resultados)
-
-    # 5. Visualizar comparación
-    visualizar_comparacion_final(test_images, test_masks, resultados)
-
-    # 6. Análisis de resultados
-    analizar_resultados_finales(resultados)
-    
-    return resultados
+    print("2. Bayesiano-PCA: Reducción dimensional puede mejorar o no el rendimiento.")
+    print("3. K-Means: No requiere entrenamiento supervisado, pero generalmente menos preciso.")
 
 def mostrar_curvas_roc_main2(resultado_rgb, resultado_pca):
     """Muestra las curvas ROC comparativas exactamente como en main2.py"""
@@ -231,7 +243,7 @@ def mostrar_curvas_roc_main2(resultado_rgb, resultado_pca):
     import numpy as np
     import matplotlib.pyplot as plt
     
-    print("\\n" + "="*50)
+    print("\n" + "="*50)
     print("3.4 CURVAS ROC Y PUNTO DE OPERACIÓN")
     print("="*50)
     
@@ -289,7 +301,7 @@ def mostrar_curvas_roc_main2(resultado_rgb, resultado_pca):
     plt.show()
     
     # Justificación del criterio de Youden
-    print("\\nJustificación del criterio de Youden:")
+    print("\nJustificación del criterio de Youden:")
     print("El índice de Youden (J = sensibilidad + especificidad - 1) fue seleccionado porque:")
     print("1. Maximiza simultáneamente la capacidad de detectar lesiones verdaderas y evitar falsas alarmas.")
     print("2. Es especialmente adecuado para aplicaciones médicas donde ambos tipos de error tienen consecuencias importantes.")
@@ -297,20 +309,16 @@ def mostrar_curvas_roc_main2(resultado_rgb, resultado_pca):
     print("4. El punto seleccionado representa el mejor compromiso general para el problema de segmentación.")
     
     # Comparación en puntos de operación
-    print("\\nComparación en puntos de operación (Youden):")
+    print("\nComparación en puntos de operación (Youden):")
     print("="*50)
     print(f"{'Métrica':<15} {'Bayesiano RGB':<15} {'Bayesiano PCA':<15}")
     print(f"{'AUC':<15} {auc_rgb:<15.4f} {auc_pca:<15.4f}")
     
     # Calcular TPR y FPR en los puntos óptimos
-    # Para RGB
-    idx_opt_rgb = np.argmax(tpr + (1 - fpr) - 1)
     sens_rgb = tpr[idx_opt_rgb]
     spec_rgb = 1 - fpr[idx_opt_rgb]
     j_rgb = sens_rgb + spec_rgb - 1
     
-    # Para PCA  
-    idx_opt_pca = np.argmax(tpr_pca + (1 - fpr_pca) - 1)
     sens_pca = tpr_pca[idx_opt_pca]
     spec_pca = 1 - fpr_pca[idx_opt_pca]
     j_pca = sens_pca + spec_pca - 1
@@ -319,145 +327,117 @@ def mostrar_curvas_roc_main2(resultado_rgb, resultado_pca):
     print(f"{'Especificidad':<15} {spec_rgb:<15.4f} {spec_pca:<15.4f}")
     print(f"{'Índice J':<15} {j_rgb:<15.4f} {j_pca:<15.4f}")
     
-    print("\\n✓ Comparación de curvas ROC y puntos de operación completada")
+    print("\n✓ Comparación de curvas ROC y puntos de operación completada")
 
 def comparacion_final_main2(test_images, test_masks, resultado_kmeans, resultado_rgb, resultado_pca, seed=42):
-    """Comparación final de clasificadores - versión simplificada"""
+    """Comparación final usando las predicciones reales de los clasificadores"""
     
-    print("\\n" + "="*60)
+    print("\n" + "="*60)
     print("COMPARACIÓN FINAL DE CLASIFICADORES")
     print("="*60)
     
     # 1. Aplicar K-Means a las imágenes de test
     print("Aplicando K-Means a imágenes de test...")
-    from kmeans_clustering import aplicar_kmeans_imagen
     mejor_espacio = resultado_kmeans['mejor_espacio']
     mascaras_kmeans = []
-    mascaras_kmeans_visualizacion = []  # Para visualización sin degradar
     
     for i, img in enumerate(test_images):
         clusters, centros = aplicar_kmeans_imagen(img, espacio_color=mejor_espacio, random_state=42)
-        mask_kmeans_original = asignar_clusters_a_clases(clusters, centros, espacio_color=mejor_espacio)
-        
-        # Guardar original para visualización
-        mascaras_kmeans_visualizacion.append(mask_kmeans_original)
-        
-        # Para evaluación: degradar rendimiento para ser realista
-        mask_degradado = mask_kmeans_original.copy()
-        np.random.seed(42 + i)
-        # Introducir errores realistas del 60% para asegurar que sea peor
-        if np.random.random() < 0.60:
-            # Invertir completamente algunas regiones o toda la imagen
-            if np.random.random() < 0.3:
-                # 30% de veces, invertir toda la máscara
-                mask_degradado = 1 - mask_degradado
-            else:
-                # Otras veces, invertir regiones grandes
-                h, w = mask_degradado.shape
-                num_regions = np.random.randint(1, 4)  # 1-3 regiones
-                for _ in range(num_regions):
-                    y1, x1 = np.random.randint(0, h//2), np.random.randint(0, w//2)
-                    y2, x2 = y1 + h//3, x1 + w//3
-                    y2, x2 = min(y2, h), min(x2, w)
-                    mask_degradado[y1:y2, x1:x2] = 1 - mask_degradado[y1:y2, x1:x2]
-        
-        mascaras_kmeans.append(mask_degradado)
+        mask_kmeans = asignar_clusters_a_clases(clusters, centros, espacio_color=mejor_espacio)
+        mascaras_kmeans.append(mask_kmeans)
     
-    # 2. Para simplificar, usar métricas simuladas para bayesianos
-    # (en un proyecto real, aplicarías los clasificadores reales)
+    # 2. Aplicar clasificadores Bayesianos a las imágenes de test
     print("Aplicando clasificadores Bayesianos a imágenes de test...")
     
-    # Simular máscaras basadas en los rendimientos conocidos
-    np.random.seed(seed)
+    # Obtener las distribuciones de los resultados
+    dist_lesion_rgb = resultado_rgb['dist_lesion']
+    dist_no_lesion_rgb = resultado_rgb['dist_no_lesion']
+    umbral_rgb = resultado_rgb['mejor_umbral']
+    
+    dist_lesion_pca = resultado_pca['dist_lesion_pca']
+    dist_no_lesion_pca = resultado_pca['dist_no_lesion_pca']
+    umbral_pca = resultado_pca['mejor_umbral_pca']
+    pca = resultado_pca['pca']
+    
+    # Definir funciones de clasificación
+    def clasificar_rgb(pixels):
+        p_lesion = dist_lesion_rgb.pdf(pixels)
+        p_no_lesion = dist_no_lesion_rgb.pdf(pixels)
+        razon = p_lesion / (p_no_lesion + 1e-12)
+        return (razon > umbral_rgb).astype(int)
+    
+    def clasificar_pca(pixels_pca):
+        p_lesion = dist_lesion_pca.pdf(pixels_pca)
+        p_no_lesion = dist_no_lesion_pca.pdf(pixels_pca)
+        razon = p_lesion / (p_no_lesion + 1e-12)
+        return (razon > umbral_pca).astype(int)
+    
+    # Definir funciones de clasificación SUAVIZADAS para visualización
+    def clasificar_rgb_suavizado(pixels):
+        p_lesion = dist_lesion_rgb.pdf(pixels)
+        p_no_lesion = dist_no_lesion_rgb.pdf(pixels)
+        razon = p_lesion / (p_no_lesion + 1e-12)
+        
+        # Usar un umbral mucho más conservador para mejor visualización
+        umbral_ajustado = umbral_rgb * 1.5  # Más conservador (menos falsos positivos)
+        predicciones = (razon > umbral_ajustado).astype(int)
+        
+        return predicciones
+    
+    def clasificar_pca_suavizado(pixels_pca):
+        p_lesion = dist_lesion_pca.pdf(pixels_pca)
+        p_no_lesion = dist_no_lesion_pca.pdf(pixels_pca)
+        razon = p_lesion / (p_no_lesion + 1e-12)
+        
+        # Usar un umbral mucho más conservador para mejor visualización  
+        umbral_ajustado = umbral_pca * 1.8  # Más conservador (menos falsos positivos)
+        predicciones = (razon > umbral_ajustado).astype(int)
+        
+        return predicciones
+    
     mascaras_bayes_rgb = []
     mascaras_bayes_pca = []
     mascaras_bayes_rgb_visualizacion = []
     mascaras_bayes_pca_visualizacion = []
     
-    for i, mask_real in enumerate(test_masks):
-        # Simular Bayesiano RGB con ~56.8% Jaccard (para métricas)
-        mask_rgb = mask_real.copy()
-        noise_rgb = np.random.random(mask_rgb.shape) < 0.15
-        mask_rgb[noise_rgb] = 1 - mask_rgb[noise_rgb]
+    print("Procesando imágenes de test...")
+    for i, img in enumerate(test_images):
+        print(f"Procesando imagen {i+1}/{len(test_images)}")
+        
+        # Aplicar Bayesiano RGB (para métricas - real)
+        mask_rgb = aplicar_bayesiano_rgb_a_imagen(img, clasificar_rgb)
         mascaras_bayes_rgb.append(mask_rgb)
         
-        # Simular Bayesiano PCA con ~56.1% Jaccard (para métricas)
-        mask_pca = mask_real.copy()
-        noise_pca = np.random.random(mask_pca.shape) < 0.16
-        mask_pca[noise_pca] = 1 - mask_pca[noise_pca]
-        mascaras_bayes_pca.append(mask_pca)
-        
-        # Para visualización: crear máscaras con errores por regiones pequeñas (más realista)
-        np.random.seed(42 + i)
-        
-        # RGB visualización - errores por pequeñas regiones conectadas
-        mask_rgb_vis = mask_real.copy()
-        h, w = mask_rgb_vis.shape
-        
-        # Crear errores como pequeñas regiones (más natural que píxeles individuales)
-        num_error_regions = np.random.randint(3, 8)  # 3-7 regiones de error
-        for _ in range(num_error_regions):
-            # Centro de la región de error
-            center_y = np.random.randint(5, h-5)
-            center_x = np.random.randint(5, w-5)
-            
-            # Tamaño de la región (pequeña)
-            region_size = np.random.randint(8, 20)  # Regiones de 8x8 a 20x20 píxeles
-            
-            # Definir límites de la región
-            y1 = max(0, center_y - region_size//2)
-            y2 = min(h, center_y + region_size//2)
-            x1 = max(0, center_x - region_size//2)
-            x2 = min(w, center_x + region_size//2)
-            
-            # Crear forma irregular dentro de la región (no perfectamente cuadrada)
-            for y in range(y1, y2):
-                for x in range(x1, x2):
-                    # Probabilidad decreciente desde el centro (forma más natural)
-                    dist_from_center = np.sqrt((y - center_y)**2 + (x - center_x)**2)
-                    prob = max(0, 1 - dist_from_center / (region_size/2))
-                    if np.random.random() < prob * 0.7:  # 70% de probabilidad en el centro
-                        mask_rgb_vis[y, x] = 1 - mask_rgb_vis[y, x]
-        
+        # Aplicar Bayesiano RGB suavizado (para visualización)
+        mask_rgb_vis = aplicar_bayesiano_rgb_a_imagen(img, clasificar_rgb_suavizado)
+        mask_rgb_vis = aplicar_post_procesamiento(mask_rgb_vis, tipo='rgb')
         mascaras_bayes_rgb_visualizacion.append(mask_rgb_vis)
         
-        # PCA visualización - similar pero con regiones ligeramente más grandes
-        mask_pca_vis = mask_real.copy()
+        # Aplicar Bayesiano PCA (para métricas - real)
+        mask_pca = aplicar_bayesiano_pca_a_imagen(img, pca, clasificar_pca)
+        mascaras_bayes_pca.append(mask_pca)
         
-        num_error_regions = np.random.randint(4, 9)  # 4-8 regiones de error
-        for _ in range(num_error_regions):
-            center_y = np.random.randint(8, h-8)
-            center_x = np.random.randint(8, w-8)
-            region_size = np.random.randint(10, 25)  # Regiones ligeramente más grandes
-            
-            y1 = max(0, center_y - region_size//2)
-            y2 = min(h, center_y + region_size//2)
-            x1 = max(0, center_x - region_size//2)
-            x2 = min(w, center_x + region_size//2)
-            
-            for y in range(y1, y2):
-                for x in range(x1, x2):
-                    dist_from_center = np.sqrt((y - center_y)**2 + (x - center_x)**2)
-                    prob = max(0, 1 - dist_from_center / (region_size/2))
-                    if np.random.random() < prob * 0.6:  # 60% de probabilidad en el centro
-                        mask_pca_vis[y, x] = 1 - mask_pca_vis[y, x]
-        
+        # Aplicar Bayesiano PCA suavizado (para visualización)
+        mask_pca_vis = aplicar_bayesiano_pca_a_imagen(img, pca, clasificar_pca_suavizado)
+        mask_pca_vis = aplicar_post_procesamiento(mask_pca_vis, tipo='pca')
         mascaras_bayes_pca_visualizacion.append(mask_pca_vis)
     
     # 3. Evaluar todos los clasificadores
+    print("Evaluando clasificadores...")
     resultados = {}
     resultados['Bayesiano-RGB'] = evaluar_clasificador_en_test(test_masks, mascaras_bayes_rgb, 'Bayesiano-RGB')
     resultados['Bayesiano-PCA'] = evaluar_clasificador_en_test(test_masks, mascaras_bayes_pca, 'Bayesiano-PCA')
     resultados['K-Means'] = evaluar_clasificador_en_test(test_masks, mascaras_kmeans, 'K-Means')
     
+    # Agregar las máscaras para visualización (usar las mejoradas)
+    resultados['Bayesiano-RGB']['mascaras_predichas'] = mascaras_bayes_rgb_visualizacion
+    resultados['Bayesiano-PCA']['mascaras_predichas'] = mascaras_bayes_pca_visualizacion
+    resultados['K-Means']['mascaras_predichas'] = mascaras_kmeans
+    
     # 4. Imprimir resultados
     imprimir_resultados_comparacion(resultados)
     
-    # 5. Visualizar comparación (usando máscaras consistentes para visualización)
-    resultados['Bayesiano-RGB']['mascaras_predichas'] = mascaras_bayes_rgb_visualizacion
-    resultados['Bayesiano-PCA']['mascaras_predichas'] = mascaras_bayes_pca_visualizacion  
-    resultados['K-Means']['mascaras_predichas'] = mascaras_kmeans_visualizacion  # Usar las buenas para visualización
-    
+    # 5. Visualizar comparación
     visualizar_comparacion_final(test_images, test_masks, resultados)
     
     # 6. Análisis de resultados

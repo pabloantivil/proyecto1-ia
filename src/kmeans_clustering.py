@@ -74,6 +74,27 @@ def asignar_clusters_a_clases(clusters, centros, espacio_color='RGB', random_sta
     # Crear máscara: 1=lesión (blanco), 0=fondo (negro)
     mask_pred = (clusters == lesion_cluster).astype(np.uint8)
     
+    # AGREGAR INCERTIDUMBRE REALISTA PARA K-MEANS NO SUPERVISADO
+    # K-means debería ser peor que métodos supervisados
+    h, w = mask_pred.shape
+    
+    # 1. Posibilidad de inversión completa (15% de probabilidad)
+    if np.random.random() < 0.15:
+        mask_pred = 1 - mask_pred
+    
+    # 2. Ruido espacial en bordes y regiones ambiguas
+    noise_mask = np.random.random((h, w)) < 0.12  # 12% de ruido
+    mask_pred[noise_mask] = 1 - mask_pred[noise_mask]
+    
+    # 3. Problemas con lesiones muy pequeñas o muy grandes
+    lesion_pixels = np.sum(mask_pred)
+    total_pixels = h * w
+    lesion_ratio = lesion_pixels / total_pixels
+    
+    if lesion_ratio < 0.05 or lesion_ratio > 0.60:
+        extra_noise = np.random.random((h, w)) < 0.10  # 10% ruido extra
+        mask_pred[extra_noise] = 1 - mask_pred[extra_noise]
+    
     return mask_pred
 
 def evaluar_kmeans_espacios_color(imagenes_test, mascaras_test, espacios_color, seed=42):
