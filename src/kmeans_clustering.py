@@ -34,18 +34,174 @@ def aplicar_kmeans_imagen(img, espacio_color='RGB', n_clusters=2, random_state=4
     # Reformar las etiquetas a la forma original de la imagen
     return labels.reshape(img.shape[0], img.shape[1]), kmeans.cluster_centers_
 
-def asignar_clusters_a_clases(mask_real, clusters, centros):
+def asignar_clusters_a_clases(clusters, centros, espacio_color='RGB', random_state=None, mask_real=None):
     """
-    Asigna los clusters de K-Means a las clases reales (lesión/no-lesión)
-    comparando con la máscara de referencia
-    """
-    # Calcular superposición entre clusters y máscara real
-    cluster_0_mask = (clusters == 0)
-    cluster_1_mask = (clusters == 1)
+    Asigna los clusters de K-Means a las clases (lesión/no-lesión)
+    usando criterios simples y consistentes.
     
-    # Calcular qué cluster se superpone más con la lesión real
-    lesion_overlap_0 = np.sum((cluster_0_mask) & (mask_real == 1))
-    lesion_overlap_1 = np.sum((cluster_1_mask) & (mask_real == 1))
+    ESTRATEGIA SIMPLE:
+    - Criterio único: intensidad (cluster más oscuro = lesión)
+    - Sin incertidumbre artificial
+    - Orientación consistente: 1=lesión (blanco), 0=fondo (negro)
+    """
+    # Calcular intensidad promedio de cada cluster según el espacio de color
+    if espacio_color == 'RGB':
+        intensidad_0 = np.mean(centros[0])
+        intensidad_1 = np.mean(centros[1])
+    elif espacio_color == 'HSV':
+        intensidad_0 = centros[0][2]  # Canal V (brillo)
+        intensidad_1 = centros[1][2]  # Canal V (brillo)
+    elif espacio_color == 'LAB':
+        intensidad_0 = centros[0][0]  # Canal L (luminancia)
+        intensidad_1 = centros[1][0]  # Canal L (luminancia)
+    elif espacio_color == 'YCrCb':
+        intensidad_0 = centros[0][0]  # Canal Y (luminancia)
+        intensidad_1 = centros[1][0]  # Canal Y (luminancia)
+    else:
+        intensidad_0 = np.mean(centros[0])
+        intensidad_1 = np.mean(centros[1])
+    
+    # El cluster más oscuro (menor intensidad) es la lesión
+    if intensidad_0 < intensidad_1:
+        lesion_cluster = 0
+    else:
+        lesion_cluster = 1
+    
+    # Crear máscara: 1=lesión (blanco), 0=fondo (negro)
+    mask_pred = (clusters == lesion_cluster).astype(np.uint8)
+    
+    return mask_pred
+
+def evaluar_kmeans_espacios_color(imagenes_test, mascaras_test, espacios_color, seed=42):
+    """
+    Evalúa K-Means con diferentes espacios de color y devuelve los resultados
+    """
+    resultados = {}
+    
+    for espacio in espacios_color:
+        print(f"\\nEvaluando espacio de color: {espacio}")
+        jaccard_scores = []
+        
+        for i, (img, mask_real) in enumerate(zip(imagenes_test, mascaras_test)):
+            # Aplicar K-Means
+            clusters, centros = aplicar_kmeans_imagen(img, espacio_color=espacio, random_state=seed)
+            
+            # Asignar clusters a clases SIN usar la máscara real (realista)
+            mask_pred = asignar_clusters_a_clases(clusters, centros, espacio_color=espacio, random_state=seed+i)
+            
+            # Calcular métrica de similitud (Índice de Jaccard)
+            jaccard = jaccard_score(mask_real.flatten(), mask_pred.flatten())
+            jaccard_scores.append(jaccard)
+        
+        # Calcular estadísticas
+        resultados[espacio] = {
+            'jaccard_mean': np.mean(jaccard_scores),
+            'jaccard_std': np.std(jaccard_scores),
+            'jaccard_scores': jaccard_scores
+        }
+        
+        print(f"Índice de Jaccard promedio: {resultados[espacio]['jaccard_mean']:.4f} ± {resultados[espacio]['jaccard_std']:.4f}")
+    
+    return resultados
+
+def visualizar_resultados_kmeans(imagenes_test, mascaras_test, mejor_espacio, seed=42):
+    """
+    Visualiza los resultados de K-Means para el mejor espacio de color
+    """
+    # Seleccionar algunas imágenes para visualización
+    indices_visualizacion = [0, 1, 2]  # Primeras 3 imágenes
+    
+    fig = plt.figure(figsize=(15, 10))
+    gs = gridspec.GridSpec(3, 4, figure=fig)
+    
+    for i, idx in enumerate(indices_visualizacion):
+        img = imagenes_test[idx]
+        mask_real = mascaras_test[idx]
+        
+        # Aplicar K-Means con el mejor espacio de color
+        clusters, centros = aplicar_kmeans_imagen(img, espacio_color=mejor_espacio, random_state=seed)
+        mask_pred = asignar_clusters_a_clases(clusters, centros, espacio_color=mejor_espacio, random_state=seed+idx)
+        
+        # Calcular Jaccard para esta imagen
+        jaccard = jaccard_score(mask_real.flatten(), mask_pred.flatten())
+        
+        # Imagen original
+        ax0 = fig.add_subplot(gs[i, 0])
+        ax0.imshow(img)
+        ax0.set_title(f'Imagen Original {idx+1}')
+        ax0.axis('off')
+        
+        # Máscara real
+        ax1 = fig.add_subplot(gs[i, 1])
+        ax1.imshow(mask_real, cmap='gray')
+        ax1.set_title('Máscara Real')
+        ax1.axis('off')
+        
+        # Resultado K-Means
+        ax2 = fig.add_subplot(gs[i, 2])
+        ax2.imshow(mask_pred, cmap='gray')
+        ax2.set_title(f'K-Means ({mejor_espacio})')
+        ax2.axis('off')
+        
+        # Superposición
+        ax3 = fig.add_subplot(gs[i, 3])
+        overlay = img.copy()
+        overlay[mask_pred == 1] = [1, 0, 0]  # Rojo para lesión predicha
+        ax3.imshow(overlay)
+        ax3.set_title(f'Superposición (J={jaccard:.3f})')
+        ax3.axis('off')
+    
+    plt.tight_layout()
+    plt.show()
+
+def analisis_completo_kmeans_main2(imagenes_val, mascaras_val, seed=42):
+    """Análisis completo de K-Means exactamente como en main2.py"""
+    
+    print("\\n" + "="*50)
+    print("3.5 CLASIFICACIÓN NO SUPERVISADA: K-MEANS")
+    print("="*50)
+    
+    # Lista de espacios de color a evaluar
+    espacios_color = ['RGB', 'HSV', 'LAB', 'YCrCb']
+    
+    print("\\nComparando diferentes espacios de color...")
+    print("-" * 50)
+    
+    # Evaluar K-Means en diferentes espacios de color
+    resultados_kmeans = evaluar_kmeans_espacios_color(imagenes_val, mascaras_val, espacios_color)
+    
+    # Encontrar el mejor espacio de color
+    mejor_espacio = max(resultados_kmeans.keys(), key=lambda x: resultados_kmeans[x]['jaccard_mean'])
+    mejor_jaccard = resultados_kmeans[mejor_espacio]['jaccard_mean']
+    
+    print(f"\\n📊 RESUMEN DE RESULTADOS K-MEANS:")
+    print("=" * 50)
+    for espacio, resultado in resultados_kmeans.items():
+        marca = "✅" if espacio == mejor_espacio else "  "
+        print(f"{marca} {espacio:<8}: {resultado['jaccard_mean']:.4f} ± {resultado['jaccard_std']:.4f}")
+    
+    print(f"\\n🏆 Mejor espacio de color: {mejor_espacio} (Jaccard = {mejor_jaccard:.4f})")
+    
+    # Visualizar resultados para el mejor espacio de color
+    print(f"\\nVisualizando resultados para el espacio de color {mejor_espacio}...")
+    visualizar_resultados_kmeans(imagenes_val, mascaras_val, mejor_espacio)
+    
+    # Justificación de la selección
+    print("\\n📋 JUSTIFICACIÓN DE LA SELECCIÓN:")
+    print("-" * 50)
+    print(f"El espacio de color {mejor_espacio} fue seleccionado porque:")
+    print(f"1. Obtuvo el mayor índice de Jaccard promedio ({mejor_jaccard:.4f})")
+    print(f"2. Mostró la mejor capacidad de separación entre lesión y tejido sano")
+    print(f"3. Es más robusto para la segmentación no supervisada en este dataset")
+    
+    print("\\n✓ Análisis de K-Means completado")
+    
+    return {
+        'mejor_espacio': mejor_espacio,
+        'resultados': resultados_kmeans,
+        'aplicar_kmeans_imagen_func': aplicar_kmeans_imagen,
+        'asignar_clusters_a_clases_func': asignar_clusters_a_clases
+    }
     
     # Asignar el cluster con mayor superposición a lesión
     if lesion_overlap_0 > lesion_overlap_1:
@@ -70,10 +226,10 @@ def evaluar_kmeans_espacios_color(imagenes_test, mascaras_test, espacios_color):
         
         for i, (img, mask_real) in enumerate(zip(imagenes_test, mascaras_test)):
             # Aplicar K-Means
-            clusters, centros = aplicar_kmeans_imagen(img, espacio_color=espacio)
+            clusters, centros = aplicar_kmeans_imagen(img, espacio_color=espacio, random_state=42)
             
-            # Asignar clusters a clases
-            mask_pred = asignar_clusters_a_clases(mask_real, clusters, centros)
+            # Asignar clusters a clases SIN usar la máscara real
+            mask_pred = asignar_clusters_a_clases(clusters, centros, espacio_color=espacio, random_state=42+i)
             
             # Calcular métrica de similitud (Índice de Jaccard)
             jaccard = jaccard_score(mask_real.flatten(), mask_pred.flatten())
@@ -105,8 +261,8 @@ def visualizar_resultados_kmeans(imagenes_test, mascaras_test, mejor_espacio):
         mask_real = mascaras_test[idx]
         
         # Aplicar K-Means con el mejor espacio de color
-        clusters, centros = aplicar_kmeans_imagen(img, espacio_color=mejor_espacio)
-        mask_pred = asignar_clusters_a_clases(mask_real, clusters, centros)
+        clusters, centros = aplicar_kmeans_imagen(img, espacio_color=mejor_espacio, random_state=42)
+        mask_pred = asignar_clusters_a_clases(clusters, centros, espacio_color=mejor_espacio, random_state=42+idx)
         
         # Imagen original
         ax0 = fig.add_subplot(gs[i, 0])

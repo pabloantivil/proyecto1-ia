@@ -55,6 +55,52 @@ def crear_histogramas_rgb(lesion_pixels, no_lesion_pixels, filename='histogramas
     plt.savefig(filename, dpi=300, bbox_inches='tight')
     plt.show()
 
+def mostrar_histogramas_estadisticos_main2(train_images, train_masks):
+    """Análisis completo de RGB exactamente como en main2.py"""
+    
+    # Extraer píxeles de entrenamiento
+    lesion_pixels, no_lesion_pixels = analizar_canales_rgb(train_images, train_masks)
+
+    print(f"\\nPíxeles extraídos:")
+    print(f"Lesión: {len(lesion_pixels):,}")
+    print(f"No-lesión: {len(no_lesion_pixels):,}")
+
+    # Estadísticos por canal
+    canales = ['R', 'G', 'B']
+    print(f"\\nEstadísticos por canal:")
+    print("-" * 60)
+
+    for i, canal in enumerate(canales):
+        lesion_canal = lesion_pixels[:, i]
+        no_lesion_canal = no_lesion_pixels[:, i]
+        
+        print(f"\\nCanal {canal}:")
+        print(f"  Lesión    - Media: {np.mean(lesion_canal):.4f}, Std: {np.std(lesion_canal):.4f}")
+        print(f"  No-lesión - Media: {np.mean(no_lesion_canal):.4f}, Std: {np.std(no_lesion_canal):.4f}")
+
+    # Histogramas
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    colors = ['red', 'green', 'blue']
+
+    for i, (canal, color) in enumerate(zip(canales, colors)):
+        lesion_canal = lesion_pixels[:, i]
+        no_lesion_canal = no_lesion_pixels[:, i]
+        
+        axes[i].hist(no_lesion_canal, bins=50, alpha=0.7, label='No-lesión', color='lightblue', density=True)
+        axes[i].hist(lesion_canal, bins=50, alpha=0.7, label='Lesión', color=color, density=True)
+        axes[i].set_title(f'Histograma Canal {canal}')
+        axes[i].set_xlabel(f'Intensidad {canal}')
+        axes[i].set_ylabel('Densidad')
+        axes[i].legend()
+        axes[i].grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.show()
+
+    print("\\n✓ Análisis de histogramas y estadísticos RGB completado")
+    
+    return lesion_pixels, no_lesion_pixels
+
 def analisis_completo_rgb(train_images, train_masks):
     """Función principal para análisis completo RGB"""
     # Extraer píxeles de entrenamiento

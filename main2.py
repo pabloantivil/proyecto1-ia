@@ -258,6 +258,13 @@ print(f"Precisión: {precision:.4f}")
 print(f"Sensibilidad: {sensibilidad:.4f}")
 print(f"Especificidad: {especificidad:.4f}")
 
+# Matriz de confusión
+matrix_confusion= confusion_matrix(y_validacion, y_pred_validacion)
+vis = ConfusionMatrixDisplay(matrix_confusion, display_labels=["No-lesión", "Lesión"])
+vis.plot()
+plt.title("Matriz de Confusión - Clasificador Bayesiano RGB")
+plt.show()
+
 print("\n✓ Clasificador Bayesiano RGB implementado y evaluado")
 
 # ================================
@@ -325,6 +332,13 @@ print(f"Exactitud: {accuracy_pca:.4f}")
 print(f"Precisión: {precision_pca:.4f}")
 print(f"Sensibilidad: {sensibilidad_pca:.4f}")
 print(f"Especificidad: {especificidad_pca:.4f}")
+
+# Matriz de confusión para PCA
+matrix_confusion_pca = confusion_matrix(y_validacion, y_pred_validacion_pca)
+vis_pca = ConfusionMatrixDisplay(matrix_confusion_pca, display_labels=["No-lesión", "Lesión"])
+vis_pca.plot()
+plt.title("Matriz de Confusión - Clasificador Bayesiano + PCA")
+plt.show()
 
 print("\n✓ Clasificador Bayesiano + PCA implementado y evaluado")
 
