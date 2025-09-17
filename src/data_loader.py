@@ -105,3 +105,53 @@ def cargar_y_preparar_datos(ruta, seed=42):
         'val_paths': val,
         'test_paths': test
     }
+
+def preparar_datos_main2():
+    """Prepara los datos exactamente como en main2.py"""
+    seed = 42
+    np.random.seed(seed)
+    
+    # Ruta del dataset
+    ruta = "C:/Users/pablo/OneDrive/Documentos/UCT/GitHub/proyecto1-ia/dataset"
+    
+    # Lista de imágenes excluyendo las que son máscaras
+    imagen_path = sorted([p for p in glob.glob(ruta + "/*.jpg") if "_expert" not in p])
+
+    # Partición de datos por imagen
+    entrenamiento_val, test = train_test_split(imagen_path, test_size=0.2, random_state=seed)
+    entrenamiento, val = train_test_split(entrenamiento_val, test_size=0.25, random_state=seed)
+    print("Entrenamiento:", len(entrenamiento), "Validación:", len(val), "Test:", len(test))
+
+    # Cargar imágenes
+    train_images, train_masks = carga_imagen(entrenamiento)
+    val_images, val_masks = carga_imagen(val)
+    test_images, test_masks = carga_imagen(test)
+
+    # Normalizar
+    train_images = normalize(train_images)
+    val_images = normalize(val_images)
+    test_images = normalize(test_images)
+    
+    # Procesar datos de entrenamiento, validación y test
+    X_entrenamiento, y_entrenamiento = muestreo_equilibrado(train_images, train_masks, n=10000)
+    X_validacion, y_validacion = muestreo_equilibrado(val_images, val_masks, n=5000)
+    X_test, y_test = muestreo_equilibrado(test_images, test_masks, n=5000)
+
+    print(f"X_entrenamiento: {X_entrenamiento.shape}, y_entrenamiento: {y_entrenamiento.shape}")
+    print(f"X_validacion: {X_validacion.shape}, y_validacion: {y_validacion.shape}")
+    print(f"X_test: {X_test.shape}, y_test: {y_test.shape}")
+    
+    return {
+        'train_images': train_images,
+        'train_masks': train_masks,
+        'val_images': val_images,
+        'val_masks': val_masks,
+        'test_images': test_images,
+        'test_masks': test_masks,
+        'X_train': X_entrenamiento,
+        'y_train': y_entrenamiento,
+        'X_val': X_validacion,
+        'y_val': y_validacion,
+        'X_test': X_test,
+        'y_test': y_test
+    }
