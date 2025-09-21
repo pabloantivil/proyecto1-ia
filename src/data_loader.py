@@ -112,7 +112,7 @@ def preparar_datos_main2():
     np.random.seed(seed)
     
     # Ruta del dataset
-    ruta = "C:/Users/pablo/OneDrive/Documentos/UCT/GitHub/proyecto1-ia/dataset"
+    ruta = "C:/Users/benja/Desktop/P1_INFO1185_ANTIVIL_ESPINOZA/dataset"
     
     # Lista de imágenes excluyendo las que son máscaras
     imagen_path = sorted([p for p in glob.glob(ruta + "/*.jpg") if "_expert" not in p])
